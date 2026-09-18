@@ -28,6 +28,123 @@ impl SettingsPane {
             .into_any_element()
     }
 
+    pub(super) fn about_sync_fork_row(
+        id: &'static str,
+        title: &'static str,
+        cx: &Context<Self>,
+    ) -> gpui::AnyElement {
+        let muted = cx.theme().muted_foreground;
+        let hover = cx.theme().list_hover;
+        h_flex()
+            .id(id)
+            .w_full()
+            .h(px(48.0))
+            .flex_shrink_0()
+            .px_1()
+            .gap_3()
+            .items_center()
+            .rounded_md()
+            .cursor_pointer()
+            .hover(move |row| row.bg(hover))
+            .on_click(move |_, window, cx| {
+                Self::trigger_sync_fork_and_install(window, cx);
+            })
+            .child(Icon::new(IconName::SquareTerminal).small().text_color(muted))
+            .child(div().flex_1().min_w_0().child(title))
+            .child(Icon::new(IconName::Play).xsmall().text_color(muted))
+            .into_any_element()
+    }
+
+    fn resolve_source_repo() -> Option<std::path::PathBuf> {
+        use std::path::PathBuf;
+
+        if let Ok(dir) = std::env::var("PEBREL_SOURCE_DIR") {
+            let p = PathBuf::from(dir);
+            if p.join("scripts/sync-fork-install.command").exists() {
+                return Some(p);
+            }
+        }
+
+        if let Some(home) = crate::platform::dirs::home_dir().or_else(|| std::env::var("HOME").ok().map(PathBuf::from)) {
+            let config_file = home.join(".config/pebrel/source_repo");
+            if let Ok(content) = std::fs::read_to_string(&config_file) {
+                let p = PathBuf::from(content.trim());
+                if p.join("scripts/sync-fork-install.command").exists() {
+                    return Some(p);
+                }
+            }
+        }
+
+        let known = PathBuf::from("/Users/wangjunhao/Code/project/misc/pebrel");
+        if known.join("scripts/sync-fork-install.command").exists() {
+            return Some(known);
+        }
+
+        if let Ok(mut exe) = std::env::current_exe() {
+            while exe.pop() {
+                if exe.join("scripts/sync-fork-install.command").exists() {
+                    return Some(exe);
+                }
+            }
+        }
+
+        None
+    }
+
+    fn trigger_sync_fork_and_install(window: &mut Window, cx: &mut App) {
+        if let Some(repo) = Self::resolve_source_repo() {
+            let script = repo.join("scripts/sync-fork-install.command");
+            if script.exists() {
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    if let Ok(meta) = std::fs::metadata(&script) {
+                        let mut perms = meta.permissions();
+                        perms.set_mode(0o755);
+                        let _ = std::fs::set_permissions(&script, perms);
+                    }
+                }
+
+                #[cfg(target_os = "macos")]
+                let spawn_res = std::process::Command::new("open")
+                    .arg("-a")
+                    .arg("Terminal")
+                    .arg(&script)
+                    .spawn();
+
+                #[cfg(not(target_os = "macos"))]
+                let spawn_res = std::process::Command::new("sh").arg(&script).spawn();
+
+                match spawn_res {
+                    Ok(_) => {
+                        crate::gpui_shell::toast::toast(
+                            window,
+                            cx,
+                            crate::gpui_shell::toast::ToastKind::Success,
+                            "已在终端中启动同步 Fork 与重新安装流程",
+                        );
+                    }
+                    Err(e) => {
+                        crate::gpui_shell::toast::toast(
+                            window,
+                            cx,
+                            crate::gpui_shell::toast::ToastKind::Warning,
+                            format!("启动终端同步脚本失败: {e}"),
+                        );
+                    }
+                }
+                return;
+            }
+        }
+
+        crate::gpui_shell::toast::toast(
+            window,
+            cx,
+            crate::gpui_shell::toast::ToastKind::Warning,
+            "未找到源码仓库路径，请确认仓库存在或配置 ~/.config/pebrel/source_repo",
+        );
+    }
+
     pub(super) fn about_value_row(
         label: &'static str,
         value: impl IntoElement,
@@ -127,12 +244,22 @@ impl SettingsPane {
                                 .text_color(ink)
                                 .child(crate::brand::NAME),
                         )
-                        .child(div().text_color(muted).child(
-                            language.pick(
-                                "GPU 加速终端 · Windows",
-                                "GPU-accelerated terminal · Windows",
-                            ),
-                        ))
+                        .child(div().text_color(muted).child({
+                            #[cfg(target_os = "macos")]
+                            {
+                                language.pick(
+                                    "GPU 加速终端 · macOS",
+                                    "GPU-accelerated terminal · macOS",
+                                )
+                            }
+                            #[cfg(not(target_os = "macos"))]
+                            {
+                                language.pick(
+                                    "GPU 加速终端 · Windows",
+                                    "GPU-accelerated terminal · Windows",
+                                )
+                            }
+                        }))
                         .child(
                             h_flex()
                                 .mt(px(12.0))
@@ -251,6 +378,11 @@ impl SettingsPane {
                 IconName::BookOpen,
                 language.pick("更新内容", "Release notes"),
                 crate::update_check::RELEASES_PAGE.to_owned(),
+                cx,
+            ))
+            .child(Self::about_sync_fork_row(
+                "about-sync-fork",
+                language.pick("同步 Fork 更新并安装", "Sync Fork & Rebuild / Install"),
                 cx,
             ));
 
