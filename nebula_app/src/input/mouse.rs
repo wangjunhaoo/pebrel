@@ -866,7 +866,11 @@ impl<T: EventListener, A: ActionContext<T>> Processor<T, A> {
     /// primary button.
     pub(super) fn on_left_click(&mut self, point: Point) {
         let side = self.ctx.mouse().cell_side;
-        let control = self.ctx.modifiers().state().control_key();
+        let control = if cfg!(target_os = "macos") {
+            self.ctx.modifiers().state().super_key() || self.ctx.modifiers().state().control_key()
+        } else {
+            self.ctx.modifiers().state().control_key()
+        };
 
         match self.ctx.mouse().click_state {
             ClickState::Click => {
@@ -1099,7 +1103,11 @@ impl<T: EventListener, A: ActionContext<T>> Processor<T, A> {
             // Requiring Ctrl (matching the "Ctrl+点击 打开" hover hint) keeps a
             // plain click free for text selection — a bare click on a link no
             // longer fires the browser/opener by accident.
-            let ctrl = self.ctx.modifiers().state().control_key();
+            let ctrl = if cfg!(target_os = "macos") {
+                self.ctx.modifiers().state().super_key() || self.ctx.modifiers().state().control_key()
+            } else {
+                self.ctx.modifiers().state().control_key()
+            };
             if ctrl && self.ctx.selection_is_empty() {
                 self.ctx.mouse_mut().block_hint_launcher = false;
                 self.ctx.trigger_hint(hint);

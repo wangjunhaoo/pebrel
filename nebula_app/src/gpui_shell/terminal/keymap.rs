@@ -213,13 +213,23 @@ fn kitty_sequence(ks: &Keystroke, mode: &TermMode) -> Option<Vec<u8>> {
 /// and native system menu run. Other modifiers retain their terminal meaning.
 pub(super) fn is_native_window_shortcut(ks: &Keystroke) -> bool {
     let mods = &ks.modifiers;
-    crate::platform::Platform::current() == crate::platform::Platform::Windows
-        && mods.alt
-        && !mods.control
-        && !mods.shift
-        && !mods.platform
-        && !mods.function
-        && matches!(ks.key.as_str(), "f4" | "space")
+    if crate::platform::Platform::current() == crate::platform::Platform::Windows {
+        mods.alt
+            && !mods.control
+            && !mods.shift
+            && !mods.platform
+            && !mods.function
+            && matches!(ks.key.as_str(), "f4" | "space")
+    } else if crate::platform::Platform::current() == crate::platform::Platform::MacOS {
+        mods.platform
+            && !mods.control
+            && !mods.alt
+            && !mods.shift
+            && !mods.function
+            && matches!(ks.key.as_str(), "m" | "h")
+    } else {
+        false
+    }
 }
 
 /// 返回 `None` 表示这次按键交给系统窗口处理或 IME/文本输入路径。
@@ -375,6 +385,20 @@ mod tests {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    #[test]
+    fn macos_native_window_shortcuts_policy() {
+        let is_mac = crate::platform::Platform::current() == crate::platform::Platform::MacOS;
+        for combo in ["cmd-m", "cmd-h"] {
+            let key = Keystroke::parse(combo).unwrap();
+            if is_mac {
+                assert!(is_native_window_shortcut(&key), "{combo} should be native window shortcut on macOS");
+                assert_eq!(encode(&key, &TermMode::empty()), None, "{combo} should encode to None on macOS");
+            } else {
+                assert!(!is_native_window_shortcut(&key), "{combo} should not be native on non-Mac");
             }
         }
     }

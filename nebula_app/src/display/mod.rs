@@ -10327,6 +10327,9 @@ impl Display {
         // Strip the `file://` scheme (and its leading slash before a Windows
         // drive) so a local path reads as a path, not a URL.
         let target = strip_file_scheme(&uri);
+        #[cfg(target_os = "macos")]
+        const HINT: &str = " · ⌘+点击";
+        #[cfg(not(target_os = "macos"))]
         const HINT: &str = " · Ctrl+点击";
         let width = |s: &str| -> usize { s.chars().map(|c| c.width().unwrap_or(0)).sum() };
         let hint_w = width(HINT);

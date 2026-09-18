@@ -4,6 +4,14 @@ use gpui_component::WindowExt as _;
 #[cfg(all(test, feature = "gpui-test-support"))]
 mod tests;
 
+fn is_link_modifier(mods: &gpui::Modifiers) -> bool {
+    if cfg!(target_os = "macos") {
+        mods.platform || mods.control
+    } else {
+        mods.control
+    }
+}
+
 impl TerminalView {
     pub(in crate::gpui_shell::terminal) fn scrollbar_thumb(
         &self,
@@ -173,7 +181,7 @@ impl TerminalView {
         let Some(hover) = self.link_hover.as_ref() else { return };
         let Some(session) = self.session.as_ref() else { return };
         let term = session.term.lock();
-        super::super::osc_links::open_hint(&hover.hint, &term, cx);
+        super::super::osc_links::open_hint(&hover.hint, &term, cx, self.local_cwd().as_deref());
     }
 
     /// 应用是否接管了鼠标（vim/htop 等）。Shift 按住时强制旁路——这是
@@ -404,7 +412,7 @@ impl TerminalView {
             );
             return;
         }
-        if event.modifiers.control && event.click_count == 1 {
+        if is_link_modifier(&event.modifiers) && event.click_count == 1 {
             let (point, _) = self.grid_point(event.position);
             let hit = self.session.as_ref().is_some_and(|session| {
                 let term = session.term.lock();
@@ -579,7 +587,7 @@ impl TerminalView {
             return;
         }
         self.selecting = false;
-        let open_link = (self.pending_link_open || event.modifiers.control)
+        let open_link = (self.pending_link_open || is_link_modifier(&event.modifiers))
             && self.selection_is_empty()
             && self.link_hover.is_some();
         if open_link {

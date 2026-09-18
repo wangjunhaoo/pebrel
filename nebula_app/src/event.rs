@@ -2136,8 +2136,9 @@ impl<'a, N: Notify + 'a, T: EventListener> input::ActionContext<T> for ActionCon
                     return;
                 }
 
+                let target = crate::display::hint::prepare_target_arg(&text, None);
                 let mut args = command.args().to_vec();
-                args.push(text.into());
+                args.push(target);
                 crate::display::nebula_link_log(format!(
                     "trigger_hint spawn program={:?} args={args:?}",
                     command.program()

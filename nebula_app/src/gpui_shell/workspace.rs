@@ -128,6 +128,7 @@ gpui::actions!(
         CopySelection,
         PasteClipboard,
         ToggleFullscreen,
+        Minimize,
         OpenQuickJump
     ]
 );
@@ -3645,6 +3646,9 @@ impl Render for NebulaWorkspace {
             }))
             .on_action(cx.listener(|this, _: &ToggleFullscreen, window, _cx| {
                 window.toggle_fullscreen();
+            }))
+            .on_action(cx.listener(|_this, _: &Minimize, window, _cx| {
+                window.minimize_window();
             }))
             .on_action(cx.listener(|this, _: &OpenQuickJump, window, cx| {
                 this.open_quick_jump_palette(window, cx);

@@ -97,6 +97,9 @@ pub(super) fn hover_from_hint<T: EventListener>(
         point_to_viewport_from(origin, start).filter(|vp| vp.line < rows && vp.column.0 < cols);
     let (anchor_row, anchor_col) =
         vp.map(|vp| (vp.line as u16, vp.column.0 as u16)).unwrap_or((0, 0));
+    #[cfg(target_os = "macos")]
+    const HINT: &str = " · ⌘+点击";
+    #[cfg(not(target_os = "macos"))]
     const HINT: &str = " · Ctrl+点击";
     let width = |s: &str| -> usize { s.chars().map(|c| c.width().unwrap_or(0)).sum() };
     let target = crate::display::strip_file_scheme(&uri);
@@ -105,17 +108,23 @@ pub(super) fn hover_from_hint<T: EventListener>(
     Some(LinkHover { hint, preview: format!("{target}{HINT}"), anchor_row, anchor_col })
 }
 
-pub(super) fn open_hint<T: EventListener>(hint: &HintMatch, term: &Term<T>, cx: &App) {
+pub(super) fn open_hint<T: EventListener>(
+    hint: &HintMatch,
+    term: &Term<T>,
+    cx: &App,
+    cwd: Option<&std::path::Path>,
+) {
     let Some(text) = hint.text(term) else { return };
+    let target = crate::display::hint::prepare_target_arg(&text, cwd);
     #[cfg(windows)]
-    if let Some(path) = crate::file_uri::file_uri_to_local_path(&text) {
+    if let Some(path) = crate::file_uri::file_uri_to_local_path(&target) {
         let _ = crate::daemon::spawn_detached("explorer.exe", &[path.as_os_str()]);
         return;
     }
     match hint.action() {
         HintAction::Command(command) => {
             let mut args = command.args().to_vec();
-            args.push(text.into_owned());
+            args.push(target);
             let _ = crate::daemon::spawn_detached(command.program(), &args);
         },
         HintAction::Action(HintInternalAction::Copy) => {

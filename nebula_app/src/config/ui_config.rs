@@ -39,6 +39,10 @@ use crate::config::window::WindowConfig;
 const URL_REGEX: &str = "(ipfs:|ipns:|magnet:|mailto:|gemini://|gopher://|https://|http://|news:|file:|git://|ssh:|ftp://)\
                          [^\u{0000}-\u{001F}\u{007F}-\u{009F}<>\"\\s{-}\\^⟨⟩`\\\\]+";
 
+/// Regex used for default local path hint (absolute paths, home paths, relative paths, Windows drive paths).
+#[rustfmt::skip]
+const PATH_REGEX: &str = r#"(?:(?:/(?:[^\u{0000}-\u{001F}\u{007F}-\u{009F}<>"'\s(){}\[\]/]+/)+|~/(?:[^\u{0000}-\u{001F}\u{007F}-\u{009F}<>"'\s(){}\[\]/]+/)*|(?:\./|\.\./)(?:[^\u{0000}-\u{001F}\u{007F}-\u{009F}<>"'\s(){}\[\]/]+/)*)[^\u{0000}-\u{001F}\u{007F}-\u{009F}<>"'\s(){}\[\]/:]+(?::\d+(?::\d+)?)?|[a-zA-Z]:[\\/][^\u{0000}-\u{001F}\u{007F}-\u{009F}<>"'\s(){}\[\]]+)"#;
+
 #[derive(ConfigDeserialize, Serialize, Default, Clone, Debug, PartialEq)]
 pub struct UiConfig {
     /// Miscellaneous configuration options.
@@ -280,6 +284,10 @@ impl Default for Hints {
         let regex = LazyRegex(Arc::new(Mutex::new(pattern)));
         let content = HintContent::new(Some(regex), true);
 
+        let path_pattern = LazyRegexVariant::Pattern(String::from(PATH_REGEX));
+        let path_regex = LazyRegex(Arc::new(Mutex::new(path_pattern)));
+        let path_content = HintContent::new(Some(path_regex), false);
+
         #[cfg(not(any(target_os = "macos", windows)))]
         let action = HintAction::Command(Program::Just(String::from("xdg-open")));
         #[cfg(target_os = "macos")]
@@ -291,22 +299,32 @@ impl Default for Hints {
         });
 
         Self {
-            enabled: vec![Arc::new(Hint {
-                content,
-                action,
-                persist: false,
-                post_processing: true,
-                mouse: Some(HintMouse { enabled: true, mods: Default::default() }),
-                binding: Some(HintBinding {
-                    key: BindingKey::Keycode {
-                        key: Key::Character("o".into()),
-                        location: KeyLocation::Standard,
-                    },
-                    mods: ModsWrapper(ModifiersState::SHIFT | ModifiersState::CONTROL),
-                    cache: Default::default(),
-                    mode: Default::default(),
+            enabled: vec![
+                Arc::new(Hint {
+                    content,
+                    action: action.clone(),
+                    persist: false,
+                    post_processing: true,
+                    mouse: Some(HintMouse { enabled: true, mods: Default::default() }),
+                    binding: Some(HintBinding {
+                        key: BindingKey::Keycode {
+                            key: Key::Character("o".into()),
+                            location: KeyLocation::Standard,
+                        },
+                        mods: ModsWrapper(ModifiersState::SHIFT | ModifiersState::CONTROL),
+                        cache: Default::default(),
+                        mode: Default::default(),
+                    }),
                 }),
-            })],
+                Arc::new(Hint {
+                    content: path_content,
+                    action,
+                    persist: false,
+                    post_processing: false,
+                    mouse: Some(HintMouse { enabled: true, mods: Default::default() }),
+                    binding: None,
+                }),
+            ],
             alphabet: Default::default(),
         }
     }

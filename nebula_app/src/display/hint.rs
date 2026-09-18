@@ -676,6 +676,109 @@ impl<T> Iterator for HintPostProcessor<'_, T> {
     }
 }
 
+/// Prepare the target argument for external opener (browser, file manager, editor, etc.).
+/// URLs (http, https, ...) are preserved intact.
+/// Local file paths (with ~ expanded, relative paths resolved against optional cwd, and
+/// trailing line/column numbers stripped if the base file exists or to prevent invalid path lookup)
+/// are formatted as valid paths.
+pub fn prepare_target_arg(raw: &str, cwd: Option<&std::path::Path>) -> String {
+    let trimmed = raw.trim();
+    // 1. Standard web/remote schemes: preserve unchanged (including ports like :3000)
+    if trimmed.starts_with("http://")
+        || trimmed.starts_with("https://")
+        || trimmed.starts_with("mailto:")
+        || trimmed.starts_with("gemini://")
+        || trimmed.starts_with("gopher://")
+        || trimmed.starts_with("ipfs:")
+        || trimmed.starts_with("ipns:")
+        || trimmed.starts_with("magnet:")
+        || trimmed.starts_with("news:")
+        || trimmed.starts_with("git://")
+        || trimmed.starts_with("ssh://")
+        || trimmed.starts_with("ftp://")
+    {
+        return trimmed.to_owned();
+    }
+
+    // 2. Local path handling: strip line:col suffix (:line:col or :line)
+    let (clean_str, _) = strip_line_col_suffix(trimmed);
+    let unescaped = if clean_str.starts_with("file://") {
+        crate::display::strip_file_scheme(clean_str)
+    } else {
+        clean_str.to_owned()
+    };
+    let clean_str = unescaped.strip_prefix("./").unwrap_or(&unescaped);
+
+    #[cfg(windows)]
+    let mut candidate = if let Some(p) = crate::file_uri::file_uri_to_local_path(clean_str) {
+        p
+    } else {
+        std::path::PathBuf::from(clean_str)
+    };
+    #[cfg(not(windows))]
+    let mut candidate = std::path::PathBuf::from(clean_str);
+
+    // 3. Expand ~/
+    if clean_str.starts_with("~/") || clean_str == "~" {
+        if let Some(home) = crate::platform::dirs::home_dir() {
+            if clean_str == "~" {
+                candidate = home;
+            } else {
+                candidate = home.join(&clean_str[2..]);
+            }
+        }
+    }
+
+    // 4. Relative paths and cwd
+    if candidate.is_relative() {
+        if let Some(cwd) = cwd {
+            let combined = cwd.join(&candidate);
+            if combined.exists() {
+                candidate = combined;
+            }
+        }
+    }
+
+    // 5. If exists on disk, return normalized path string
+    if candidate.exists() {
+        return candidate.to_string_lossy().into_owned();
+    }
+
+    // If started with ~, return expanded path
+    if clean_str.starts_with('~') {
+        return candidate.to_string_lossy().into_owned();
+    }
+
+    // If stripped trailing line/col, return clean path
+    if clean_str.len() < trimmed.len() && !clean_str.is_empty() {
+        return candidate.to_string_lossy().into_owned();
+    }
+
+    trimmed.to_owned()
+}
+
+pub fn strip_line_col_suffix(path: &str) -> (&str, Option<&str>) {
+    let bytes = path.as_bytes();
+    let len = bytes.len();
+    let mut cursor = len;
+    while cursor > 0 && bytes[cursor - 1].is_ascii_digit() {
+        cursor -= 1;
+    }
+    if cursor < len && cursor > 0 && bytes[cursor - 1] == b':' {
+        let second_colon = cursor - 1;
+        let mut prev = second_colon;
+        while prev > 0 && bytes[prev - 1].is_ascii_digit() {
+            prev -= 1;
+        }
+        if prev < second_colon && prev > 0 && bytes[prev - 1] == b':' {
+            return (&path[..prev - 1], Some(&path[prev - 1..]));
+        } else {
+            return (&path[..second_colon], Some(&path[second_colon..]));
+        }
+    }
+    (path, None)
+}
+
 #[cfg(test)]
 mod tests {
     use nebula_terminal::index::{Column, Line};
@@ -830,5 +933,31 @@ mod tests {
 
         // The iterator should match everything in the viewport.
         assert_eq!(visible_regex_match_iter(&term, &mut regex).count(), 4096);
+    }
+
+    #[test]
+    fn test_strip_line_col_suffix() {
+        assert_eq!(strip_line_col_suffix("/foo/bar.rs:42:10"), ("/foo/bar.rs", Some(":42:10")));
+        assert_eq!(strip_line_col_suffix("/foo/bar.rs:42"), ("/foo/bar.rs", Some(":42")));
+        assert_eq!(strip_line_col_suffix("/foo/bar.rs"), ("/foo/bar.rs", None));
+        assert_eq!(strip_line_col_suffix("C:\\path\\file.txt:100:5"), ("C:\\path\\file.txt", Some(":100:5")));
+    }
+
+    #[test]
+    fn test_prepare_target_arg_urls() {
+        assert_eq!(prepare_target_arg("http://localhost:3000", None), "http://localhost:3000");
+        assert_eq!(prepare_target_arg("https://github.com/foo/bar", None), "https://github.com/foo/bar");
+        assert_eq!(prepare_target_arg("mailto:test@example.com", None), "mailto:test@example.com");
+    }
+
+    #[test]
+    fn test_prepare_target_arg_local_paths() {
+        let manifest = env!("CARGO_MANIFEST_DIR");
+        let path_with_line = format!("{manifest}/Cargo.toml:10:5");
+        let expected = format!("{manifest}/Cargo.toml");
+        assert_eq!(prepare_target_arg(&path_with_line, None), expected);
+
+        let manifest_dir = std::path::Path::new(manifest);
+        assert_eq!(prepare_target_arg("./Cargo.toml:15", Some(manifest_dir)), expected);
     }
 }

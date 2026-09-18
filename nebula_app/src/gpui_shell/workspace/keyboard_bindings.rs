@@ -161,6 +161,7 @@ fn bind_macos_command_keys(cx: &mut App) {
         KeyBinding::new("cmd-v", PasteClipboard, Some(crate::gpui_shell::terminal::KEY_CONTEXT)),
         KeyBinding::new("cmd-v", gpui_component::input::Paste, Some("Input")),
         KeyBinding::new("cmd-ctrl-f", ToggleFullscreen, None),
+        KeyBinding::new("cmd-m", Minimize, None),
         KeyBinding::new("cmd-shift-o", OpenQuickJump, None),
     ]);
 }
@@ -248,6 +249,7 @@ fn workspace_binding_in_context(
             scope.or(Some(crate::gpui_shell::terminal::KEY_CONTEXT)),
         )),
         Action::ToggleFullscreen => Some(KeyBinding::new(&combo, ToggleFullscreen, scope)),
+        Action::Minimize => Some(KeyBinding::new(&combo, Minimize, scope)),
         Action::OpenQuickJump => Some(KeyBinding::new(&combo, OpenQuickJump, scope)),
         // `none` 禁用键：gpui 的 NoAction 绑定在最高优先级命中时吞掉按键，
         // 与旧壳 keybind=combo:none 的语义一致。
